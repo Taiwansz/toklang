@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TokLang — Motor de Compressão de Prompts</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ─── Variáveis ─────────────────────────────────────────────────────── */
+    :root {
+      --bg:          #080b0f;
+      --bg-card:     #0d1117;
+      --bg-input:    #0f151c;
+      --border:      #1c2530;
+      --border-focus:#00ff88;
+      --green:       #00ff88;
+      --green-dim:   #00cc6a;
+      --green-glow:  rgba(0, 255, 136, 0.08);
+      --green-glow2: rgba(0, 255, 136, 0.15);
+      --cyan:        #00d4ff;
+      --text:        #e2e8f0;
+      --text-muted:  #4a5568;
+      --text-dim:    #718096;
+      --yellow:      #ffd700;
+      --red:         #ff4757;
+      --radius:      8px;
+      --font-mono:   'JetBrains Mono', monospace;
+      --font-display:'Syne', sans-serif;
+    }
+
+    /* ─── Reset & Base ──────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { font-size: 15px; scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-mono);
+      min-height: 100vh;
+      line-height: 1.6;
+      /* Subtle grid background */
+      background-image:
+        linear-gradient(rgba(0,255,136,0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,255,136,0.015) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+
+    /* ─── Header ────────────────────────────────────────────────────────── */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(8, 11, 15, 0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+    }
+
+    .header-inner {
+      max-width: 960px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 58px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .logo-icon {
+      width: 28px;
+      height: 28px;
+      background: var(--green);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 700;
+      color: #080b0f;
+      font-family: var(--font-display);
+      flex-shrink: 0;
+    }
+
+    .logo-text {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 1.15rem;
+      letter-spacing: 0.04em;
+      color: var(--text);
+    }
+
+    .logo-text span {
+      color: var(--green);
+    }
+
+    /* Contador acumulado de tokens */
+    .session-counter {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--green-glow);
+      border: 1px solid rgba(0,255,136,0.2);
+      border-radius: 20px;
+      padding: 5px 14px;
+      font-size: 0.78rem;
+      color: var(--green);
+      font-weight: 500;
+      transition: all 0.3s;
+    }
+
+    .session-counter .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.8); }
+    }
+
+    /* ─── Layout principal ──────────────────────────────────────────────── */
+    main {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 32px 24px 80px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* ─── Card base ─────────────────────────────────────────────────────── */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      position: relative;
+    }
+
+    .card-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card-label::before {
+      content: '';
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    /* ─── Input area ─────────────────────────────────────────────────────── */
+    .input-card {
+      border-color: var(--border);
+      transition: border-color 0.2s;
+    }
+
+    .input-card:focus-within {
+      border-color: rgba(0, 255, 136, 0.4);
+      box-shadow: 0 0 0 1px rgba(0,255,136,0.1), 0 0 20px rgba(0,255,136,0.05);
+    }
+
+    #promptInput {
+      width: 100%;
+      background: transparent;
+      border: none;
+      outline: none;
+      resize: none;
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 0.9rem;
+      line-height: 1.7;
+      min-height: 120px;
+      max-height: 320px;
+    }
+
+    #promptInput::placeholder {
+      color: var(--text-muted);
+    }
+
+    .input-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    /* Toggle AI compression */
+    .toggle-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      user-select: none;
+      cursor: pointer;
+    }
+
+    .toggle {
+      position: relative;
+      width: 36px;
+      height: 20px;
+    }
+
+    .toggle input { opacity: 0; width: 0; height: 0; }
+
+    .toggle-slider {
+      position: absolute;
+      inset: 0;
+      background: var(--border);
+      border-radius: 20px;
+      transition: 0.25s;
+      cursor: pointer;
+    }
+
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      left: 3px;
+      top: 3px;
+      background: var(--text-dim);
+      border-radius: 50%;
+      transition: 0.25s;
+    }
+
+    .toggle input:checked + .toggle-slider {
+      background: rgba(0,255,136,0.25);
+      border: 1px solid rgba(0,255,136,0.4);
+    }
+
+    .toggle input:checked + .toggle-slider::before {
+      background: var(--green);
+      transform: translateX(16px);
+    }
+
+    /* Enviar button */
+    #sendBtn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 22px;
+      background: var(--green);
+      color: #080b0f;
+      border: none;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+
+    #sendBtn:hover:not(:disabled) {
+      background: #1aff95;
+      box-shadow: 0 0 20px rgba(0,255,136,0.3);
+      transform: translateY(-1px);
+    }
+
+    #sendBtn:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    #sendBtn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    #sendBtn .spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(8,11,15,0.3);
+      border-top-color: #080b0f;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+
+    #sendBtn.loading .btn-text { display: none; }
+    #sendBtn.loading .spinner { display: block; }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* ─── Output sections ───────────────────────────────────────────────── */
+    #outputSection {
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+      animation: fadeIn 0.4s ease;
+    }
+
+    #outputSection.visible {
+      display: flex;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Prompt comprimido */
+    .compressed-card .card-label { color: var(--cyan); }
+    .compressed-card .card-label::before { background: var(--cyan); }
+
+    #compressedText {
+      font-size: 0.88rem;
+      color: var(--cyan);
+      line-height: 1.65;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* Badge de economia */
+    .savings-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      background: rgba(0,255,136,0.1);
+      border: 1px solid rgba(0,255,136,0.25);
+      border-radius: 20px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--green);
+      margin-top: 12px;
+    }
+
+    /* Resposta da IA */
+    .response-card .card-label { color: var(--text); }
+
+    #aiResponse {
+      font-size: 0.875rem;
+      color: var(--text);
+      line-height: 1.8;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* Markdown básico no response */
+    #aiResponse strong, #aiResponse b { color: #ffffff; font-weight: 600; }
+    #aiResponse code {
+      background: rgba(255,255,255,0.07);
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 0.84em;
+      color: var(--cyan);
+    }
+
+    /* Estatísticas */
+    .stats-card {
+      border-color: rgba(0,255,136,0.15);
+    }
+
+    .stats-card .card-label { color: var(--green); }
+    .stats-card .card-label::before { background: var(--green); }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+    }
+
+    .stat-item {
+      background: rgba(0,255,136,0.04);
+      border: 1px solid rgba(0,255,136,0.1);
+      border-radius: 6px;
+      padding: 12px 16px;
+    }
+
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--green);
+      font-family: var(--font-display);
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+
+    .stat-label {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .stat-item.accent .stat-value {
+      font-size: 1.8rem;
+    }
+
+    /* Session cumulative bar */
+    .cumulative-bar {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.77rem;
+      color: var(--text-muted);
+      gap: 8px;
+    }
+
+    .cumulative-bar strong {
+      color: var(--green);
+      font-weight: 600;
+    }
+
+    /* ─── Error state ────────────────────────────────────────────────────── */
+    .error-card {
+      border-color: rgba(255, 71, 87, 0.3);
+      background: rgba(255, 71, 87, 0.05);
+    }
+
+    .error-card .card-label { color: var(--red); }
+    .error-card .card-label::before { background: var(--red); }
+
+    #errorText {
+      color: var(--red);
+      font-size: 0.875rem;
+    }
+
+    /* ─── Hint ───────────────────────────────────────────────────────────── */
+    .hint {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-align: center;
+      padding: 8px;
+    }
+
+    .hint kbd {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+    }
+
+    /* ─── Scrollbar ──────────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+    /* ─── Responsive ─────────────────────────────────────────────────────── */
+    @media (max-width: 600px) {
+      main { padding: 20px 16px 60px; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .input-footer { flex-direction: column; align-items: stretch; }
+      #sendBtn { width: 100%; justify-content: center; }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="header-inner">
+      <div class="logo">
+        <div class="logo-icon">T</div>
+        <div class="logo-text">Tok<span>Lang</span></div>
+      </div>
+      <div class="session-counter" id="sessionCounter">
+        <div class="dot"></div>
+        <span id="sessionTokens">0</span> tokens economizados
+      </div>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main>
+
+    <!-- Input Card -->
+    <div class="card input-card">
+      <div class="card-label">Seu prompt</div>
+      <textarea
+        id="promptInput"
+        placeholder="Digite seu prompt normalmente. O TokLang comprime automaticamente antes de enviar para a IA..."
+        rows="5"
+        autofocus
+      ></textarea>
+
+      <div class="input-footer">
+        <label class="toggle-group">
+          <div class="toggle">
+            <input type="checkbox" id="aiToggle" checked />
+            <div class="toggle-slider"></div>
+          </div>
+          Compressão por IA (Gemini Flash)
+        </label>
+
+        <button id="sendBtn">
+          <div class="spinner"></div>
+          <span class="btn-text">▶ Enviar</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="hint">
+      <kbd>Ctrl + Enter</kbd> para enviar · <kbd>Shift + Enter</kbd> para nova linha
+    </div>
+
+    <!-- Output Section (hidden until first response) -->
+    <div id="outputSection">
+
+      <!-- Bloco 1: Prompt comprimido -->
+      <div class="card compressed-card">
+        <div class="card-label">Prompt comprimido</div>
+        <div id="compressedText"></div>
+        <div class="savings-badge" id="savingsBadge">
+          ↓ 0%
+        </div>
+      </div>
+
+      <!-- Bloco 2: Resposta da IA -->
+      <div class="card response-card">
+        <div class="card-label">Resposta da IA</div>
+        <div id="aiResponse"></div>
+      </div>
+
+      <!-- Bloco 3: Estatísticas -->
+      <div class="card stats-card">
+        <div class="card-label">Estatísticas de economia</div>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <div class="stat-value" id="statOriginal">—</div>
+            <div class="stat-label">tokens originais</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="statFinal">—</div>
+            <div class="stat-label">tokens comprimidos</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="statSaved">—</div>
+            <div class="stat-label">tokens economizados</div>
+          </div>
+          <div class="stat-item accent">
+            <div class="stat-value" id="statPercent" style="color: var(--green)">—</div>
+            <div class="stat-label">economia</div>
+          </div>
+        </div>
+        <div class="cumulative-bar">
+          <span>Sessão acumulada:</span>
+          <strong id="cumulativeSaved">0 tokens</strong>
+          economizados em
+          <strong id="cumulativePrompts">0</strong>
+          prompts
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Error Card (hidden by default) -->
+    <div class="card error-card" id="errorCard" style="display:none;">
+      <div class="card-label">Erro</div>
+      <div id="errorText"></div>
+    </div>
+
+  </main>
+
+  <script>
+    // ─── Estado da sessão ──────────────────────────────────────────────────
+    let sessionSavedTokens = 0;
+    let sessionPrompts = 0;
+    let conversationHistory = [];
+
+    // ─── Elementos DOM ─────────────────────────────────────────────────────
+    const promptInput    = document.getElementById('promptInput');
+    const sendBtn        = document.getElementById('sendBtn');
+    const aiToggle       = document.getElementById('aiToggle');
+    const outputSection  = document.getElementById('outputSection');
+    const compressedText = document.getElementById('compressedText');
+    const savingsBadge   = document.getElementById('savingsBadge');
+    const aiResponse     = document.getElementById('aiResponse');
+    const statOriginal   = document.getElementById('statOriginal');
+    const statFinal      = document.getElementById('statFinal');
+    const statSaved      = document.getElementById('statSaved');
+    const statPercent    = document.getElementById('statPercent');
+    const cumulativeSaved  = document.getElementById('cumulativeSaved');
+    const cumulativePrompts= document.getElementById('cumulativePrompts');
+    const sessionTokens  = document.getElementById('sessionTokens');
+    const errorCard      = document.getElementById('errorCard');
+    const errorText      = document.getElementById('errorText');
+
+    // ─── Auto-resize textarea ───────────────────────────────────────────────
+    promptInput.addEventListener('input', () => {
+      promptInput.style.height = 'auto';
+      promptInput.style.height = Math.min(promptInput.scrollHeight, 320) + 'px';
+    });
+
+    // ─── Ctrl+Enter para enviar ─────────────────────────────────────────────
+    promptInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.ctrlKey) {
+        e.preventDefault();
+        handleSend();
+      }
+    });
+
+    sendBtn.addEventListener('click', handleSend);
+
+    // ─── Renderização simples de markdown inline ────────────────────────────
+    function renderMarkdown(text) {
+      return text
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\n/g, '<br>');
+    }
+
+    // ─── Formatação de economia ─────────────────────────────────────────────
+    function formatSavings(percent) {
+      if (percent > 0) return `↓ ${percent}%`;
+      return `→ 0%`;
+    }
+
+    // ─── Animação do número ─────────────────────────────────────────────────
+    function animateNumber(el, target, suffix = '') {
+      const start = parseInt(el.textContent) || 0;
+      const duration = 600;
+      const startTime = performance.now();
+
+      function update(now) {
+        const elapsed = now - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+        const current = Math.round(start + (target - start) * eased);
+        el.textContent = current + suffix;
+        if (progress < 1) requestAnimationFrame(update);
+      }
+
+      requestAnimationFrame(update);
+    }
+
+    // ─── Mostrar/esconder estados ───────────────────────────────────────────
+    function setLoading(loading) {
+      sendBtn.disabled = loading;
+      sendBtn.classList.toggle('loading', loading);
+      promptInput.disabled = loading;
+    }
+
+    function showError(msg) {
+      errorCard.style.display = 'block';
+      errorText.textContent = msg;
+      outputSection.classList.remove('visible');
+    }
+
+    function hideError() {
+      errorCard.style.display = 'none';
+    }
+
+    // ─── Handler principal ──────────────────────────────────────────────────
+    async function handleSend() {
+      const prompt = promptInput.value.trim();
+      if (!prompt) return;
+
+      setLoading(true);
+      hideError();
+
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt,
+            history: conversationHistory,
+            useAI: aiToggle.checked,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: 'Erro desconhecido' }));
+          throw new Error(err.error || `HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+
+        // Atualiza histórico local
+        conversationHistory.push({ role: 'user', parts: [{ text: prompt }] });
+        conversationHistory.push({ role: 'model', parts: [{ text: data.response }] });
+
+        // Bloco 1 — prompt comprimido
+        compressedText.textContent = data.compressed;
+        savingsBadge.textContent = formatSavings(data.stats.savedPercent);
+        savingsBadge.style.color = data.stats.savedPercent > 30
+          ? 'var(--green)'
+          : data.stats.savedPercent > 10 ? 'var(--yellow)' : 'var(--text-muted)';
+
+        // Bloco 2 — resposta
+        aiResponse.innerHTML = renderMarkdown(data.response);
+
+        // Bloco 3 — stats animados
+        statOriginal.textContent = data.stats.tokensOriginal;
+        statFinal.textContent    = data.stats.tokensFinal;
+        statSaved.textContent    = data.stats.savedTokens;
+        statPercent.textContent  = formatSavings(data.stats.savedPercent);
+
+        // Acumulado da sessão
+        sessionSavedTokens += data.stats.savedTokens;
+        sessionPrompts++;
+
+        animateNumber(sessionTokens, sessionSavedTokens);
+        cumulativeSaved.textContent = sessionSavedTokens + ' tokens';
+        cumulativePrompts.textContent = sessionPrompts;
+
+        // Exibe a seção de output
+        outputSection.classList.add('visible');
+
+        // Scroll suave para o output
+        setTimeout(() => {
+          outputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+
+        // Limpa o input
+        promptInput.value = '';
+        promptInput.style.height = 'auto';
+
+      } catch (err) {
+        showError(err.message || 'Ocorreu um erro ao processar sua solicitação.');
+      } finally {
+        setLoading(false);
+        promptInput.focus();
+      }
+    }
+  </script>
+</body>
+</html>
